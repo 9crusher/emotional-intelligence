@@ -1,6 +1,6 @@
-# emotional-intelligence
+# Emotional Intelligence
 
-The goal of this project is to give desktop agents emotional intelligence. In particular, to give them an understanding of your body language. This project runs **100% Locally* to preserve privacy. The project is a Mac Application that connects to your agents via MCP. It can push notifications to them based on your body language & can be passivly queried.
+The goal of this project is to give desktop agents emotional intelligence. In particular, to give them an understanding of your body language. This project runs *100% Locally* to preserve privacy. The project is a Mac Application that connects to your agents via MCP. It can push notifications to them based on your body language & can be passively queried.
 
 ![The desktop app's dashboard: what you're doing right now, time at the desk, and a grid of selected behaviors over the day](docs/dashboard.png)
 
