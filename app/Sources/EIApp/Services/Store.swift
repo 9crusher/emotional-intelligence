@@ -11,6 +11,8 @@ final class Store {
     var events: [FiredEvent] = []
     var daemonState: DaemonState?
     var today = BehaviorSummary()
+    /// Today's observations as held time spans, oldest first.
+    var todaySpans: [FactSpan] = []
     var capturesToday = 0
     var vocab: [String: [String]] = [:]
     var dbAvailable = false
@@ -59,7 +61,8 @@ final class Store {
             settings = try loadSettings(db)
             recent = try loadRecent(db, limit: 25)
             let now = Date()
-            today = try timeShares(db, from: Calendar.current.startOfDay(for: now), to: now)
+            todaySpans = try factSpans(db, from: Calendar.current.startOfDay(for: now), to: now)
+            today = timeShares(todaySpans)
             capturesToday = try countToday(db, now: now)
             triggers = try loadTriggers(db)
             events = try loadEvents(db, limit: 20)
@@ -169,9 +172,30 @@ final class Store {
         }
     }
 
-    /// Port of `queries._time_shares`: each observation holds until the next one, capped at
-    /// `max_gap_s`, and the last observation before the window carries into it.
-    private func timeShares(_ db: Database, from: Date, to: Date) throws -> BehaviorSummary {
+    /// Time-weighted shares over `spans` (mirrors `queries._time_shares`).
+    private func timeShares(_ spans: [FactSpan]) -> BehaviorSummary {
+        var weight: [String: [String: Double]] = [:]
+        var observed: Double = 0
+        for span in spans {
+            let held = span.end.timeIntervalSince(span.start)
+            observed += held
+            for (key, values) in span.facts {
+                for v in values { weight[key, default: [:]][v, default: 0] += held }
+            }
+        }
+        var summary = BehaviorSummary(observedS: observed)
+        guard observed > 0 else { return summary }
+        for (key, values) in weight {
+            summary.shares[key] = values
+                .map { .init(value: $0.key, share: $0.value / observed) }
+                .sorted { $0.share > $1.share }
+        }
+        return summary
+    }
+
+    /// Port of the hold logic in `queries._time_shares`: each observation holds until the next
+    /// one, capped at `max_gap_s`, and the last observation before the window carries into it.
+    private func factSpans(_ db: Database, from: Date, to: Date) throws -> [FactSpan] {
         let start = ms(from), end = ms(to)
         let rows = try db.query(
             """
@@ -183,26 +207,17 @@ final class Store {
         let facts = try factsFor(db, rows.compactMap { $0.int("id") })
         let maxGapMs = Int64(settings.maxGapS * 1000)
 
-        var weight: [String: [String: Int64]] = [:]
-        var observed: Int64 = 0
+        var spans: [FactSpan] = []
         for (i, r) in rows.enumerated() {
             guard let id = r.int("id"), let ts = r.int("ts") else { continue }
             let nextTs = i + 1 < rows.count ? (rows[i + 1].int("ts") ?? end) : end
-            let held = min(nextTs, ts + maxGapMs, end) - max(ts, start)
-            guard held > 0 else { continue }
-            observed += held
-            for (key, values) in facts[id] ?? [:] {
-                for v in values { weight[key, default: [:]][v, default: 0] += held }
-            }
+            let spanStart = max(ts, start), spanEnd = min(nextTs, ts + maxGapMs, end)
+            guard spanEnd > spanStart else { continue }
+            spans.append(FactSpan(
+                start: date(ms: spanStart), end: date(ms: spanEnd), captured: ts >= start,
+                facts: facts[id] ?? [:]))
         }
-        var summary = BehaviorSummary(observedS: Double(observed) / 1000)
-        guard observed > 0 else { return summary }
-        for (key, values) in weight {
-            summary.shares[key] = values
-                .map { .init(value: $0.key, share: Double($0.value) / Double(observed)) }
-                .sorted { $0.share > $1.share }
-        }
-        return summary
+        return spans
     }
 
     private func countToday(_ db: Database, now: Date) throws -> Int {

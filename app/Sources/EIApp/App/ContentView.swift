@@ -7,7 +7,7 @@ enum ViewType: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .dashboard: "Overview"
+        case .dashboard: "Dashboard"
         case .models: "AI Models"
         case .triggers: "Triggers"
         case .settings: "Settings"

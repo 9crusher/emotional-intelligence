@@ -22,6 +22,7 @@ struct DashboardView: View {
                             message: error, actionTitle: "AI Models") { model.selection = .models }
             }
             SummaryStats()
+            ActivityGrid()
             Feed()
         }
         .appPage()
@@ -29,7 +30,7 @@ struct DashboardView: View {
 
     private var header: some View {
         TimelineView(.periodic(from: .now, by: 5)) { context in
-            AppScreenHeader(title: "Overview", subtitle: status(now: context.date)) {
+            AppScreenHeader(title: "Dashboard", subtitle: status(now: context.date)) {
                 Button(model.store.settings.paused ? "Resume" : "Pause") {
                     model.store.set("paused", !model.store.settings.paused)
                 }

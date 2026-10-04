@@ -1,11 +1,19 @@
 # emotional-intelligence
 
-The goal of this project is to give desktop agents emotional intelligence. In particular, to allow them to understand body language as they work with you. This project runs **100% Locally* to preserve privacy.
+The goal of this project is to give desktop agents emotional intelligence. In particular, to give them an understanding of your body language. This project runs **100% Locally* to preserve privacy. The project is a Mac Application that connects to your agents via MCP. It can push notifications to them based on your body language & can be passivly queried.
+
+![The desktop app's dashboard: what you're doing right now, time at the desk, and a grid of selected behaviors over the day](docs/dashboard.png)
 
 ### How it works
 A local scheduled jobs polls the desktop camera at regular intervals. Local models describe your observable body language (expression, gaze, posture, what your hands are doing), and the results are saved in a local database. An MCP connector enables desktop agents to access the results (importantly not the images).
 
-Emotional judgements are deliberately *not* made or stored. A single webcam frame can't reliably say how you feel, but it can reliably say "frowning, slouched, hand on face". The agent, which knows what you're working on and what just happened, is in a much better position to interpret that.
+[Triggers](#triggers) can also push to your coding agent. For example, this one tells the agent whenever you touch your face, and the agent passes the reminder on in its next reply:
+
+![A trigger that tells the coding agent when the user's hand is on their face](docs/triggers.png)
+
+And Claude Code acting on it mid-session:
+
+![Claude Code telling the user it saw them touch their face twice in the last minute](docs/agent-reply.png)
 
 ### Future work
 In the future, keyboard inputs, biometrics, and an agent's own assesment of your emotional state could be included.

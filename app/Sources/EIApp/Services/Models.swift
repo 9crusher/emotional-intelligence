@@ -77,6 +77,37 @@ struct DaemonState: Equatable {
     let lastError: String?
 }
 
+/// The stretch of time one observation's facts hold for (until the next one, capped at `max_gap_s`).
+struct FactSpan: Equatable {
+    let start: Date
+    let end: Date
+    /// False for the carried-over observation from before the window.
+    let captured: Bool
+    let facts: Facts
+
+    func has(_ tag: FactTag) -> Bool { facts[tag.key]?.contains(tag.value) ?? false }
+}
+
+/// A single key=value, e.g. hands=face.
+struct FactTag: Hashable, Identifiable {
+    let key: String
+    let value: String
+
+    var id: String { "\(key)=\(value)" }
+    var label: String { FactStyle.pretty(value, key: key) }
+
+    init(key: String, value: String) {
+        self.key = key
+        self.value = value
+    }
+
+    init?(_ id: String) {
+        let parts = id.split(separator: "=", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+        self.init(key: parts[0], value: parts[1])
+    }
+}
+
 /// Time-weighted share of observed time per key/value (mirrors `ei.queries.BehaviorSummary`).
 struct BehaviorSummary: Equatable {
     struct Share: Equatable {
