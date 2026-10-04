@@ -20,9 +20,9 @@ mcp = MCPServer(
     "emotional-intelligence",
     instructions=(
         "Observed body language of the user, recorded locally from their webcam: activity, "
-        "gaze, facial expression, head position, posture, and hands. These are observations, "
+        "gaze, facial expression, posture, and hands. These are observations, "
         "not conclusions. Interpret them yourself, in light of what you and the user are "
-        "doing (e.g. a furrowed brow after repeated test failures). Treat them as soft, "
+        "doing (e.g. frowning after repeated test failures). Treat them as soft, "
         "noisy hints, and don't recite them back to the user unprompted."
     ),
 )
@@ -48,8 +48,7 @@ def _ago(seconds: float) -> str:
 
 @mcp.tool(annotations=READ_ONLY)
 def current_observation() -> str:
-    """What the user is visibly doing right now: activity, gaze, expression, head, posture,
-    hands."""
+    """What the user is visibly doing right now: activity, gaze, expression, posture, hands."""
     try:
         snap = queries.current_observation(_conn())
     except sqlite3.OperationalError:

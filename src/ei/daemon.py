@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import sqlite3
 import time
@@ -124,18 +125,28 @@ class Daemon:
         self.facts: db.Facts | None = None
         self._data_version = self._read_data_version()
         self._stop = asyncio.Event()
+        # Set by the desktop app so its child daemon never outlives it (e.g. on a crash).
+        self._parent_pid = os.getppid() if os.environ.get("EI_EXIT_WITH_PARENT") else None
 
     def stop(self) -> None:
         self._stop.set()
 
     async def run(self) -> None:
         log.info("daemon started (db=%s, fake=%s)", db.default_db_path(), self.fake)
+        db.record_daemon_start(self.conn, os.getpid())
         last_tick = float("-inf")
         last_prune = float("-inf")
+        capture_seen = self.settings.capture_requested_at
         while not self._stop.is_set():
+            if self._parent_pid is not None and os.getppid() != self._parent_pid:
+                log.info("parent process exited; stopping")
+                break
             self._maybe_reload()
             now = time.monotonic()
-            if not self.settings.paused and now - last_tick >= self.settings.interval_s:
+            requested = self.settings.capture_requested_at > capture_seen
+            capture_seen = self.settings.capture_requested_at
+            due = not self.settings.paused and now - last_tick >= self.settings.interval_s
+            if requested or due:
                 last_tick = now
                 await self._tick()
             if now - last_prune >= PRUNE_EVERY_S:
@@ -150,9 +161,11 @@ class Daemon:
     async def _tick(self) -> None:
         try:
             result = await asyncio.to_thread(self.pipeline.tick, self.settings)
-        except Exception:
+        except Exception as e:
             log.exception("tick failed")
+            db.record_tick(self.conn, "error", f"{type(e).__name__}: {e}")
             return
+        db.record_tick(self.conn, result.status)
         if result.observation is not None:
             db.insert_observation(self.conn, result.observation)
             o = result.observation

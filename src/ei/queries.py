@@ -19,7 +19,7 @@ from typing import Any
 from ei.db import Facts, now_ms
 
 # Keys in display order. Unknown keys (from future analyzers) are listed after these.
-KEY_ORDER = ["present", "activity", "gaze", "expression", "head", "posture", "hands"]
+KEY_ORDER = ["present", "activity", "gaze", "expression", "posture", "hands"]
 
 
 @dataclass(slots=True)
@@ -105,7 +105,7 @@ def ordered_keys(keys: Any) -> list[str]:
 
 
 def format_facts(facts: Facts) -> str:
-    """Compact one-line rendering for logs and the CLI, e.g. 'gaze=screen hands=mouse,keyboard'."""
+    """Compact one-line rendering for logs and the CLI, e.g. 'gaze=screen hands=desk'."""
     if facts.get("present") == ["false"]:
         return "away"
     return " ".join(f"{k}={','.join(facts[k])}" for k in ordered_keys(facts) if k != "present")

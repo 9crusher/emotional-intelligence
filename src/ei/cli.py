@@ -83,7 +83,7 @@ def format_duration(seconds: float) -> str:
 
 
 def parse_conditions(specs: list[str]) -> dict[str, list[str]]:
-    """['activity=drinking', 'posture=slouched,leaning_back'] -> {key: [values]}."""
+    """['activity=eating_drinking', 'expression=frowning,yawning'] -> {key: [values]}."""
     out: dict[str, list[str]] = {}
     for spec in specs:
         key, sep, values = spec.partition("=")
@@ -133,6 +133,21 @@ def cmd_events(args: argparse.Namespace) -> None:
         status = "delivered" if r["delivered_at"] else "pending"
         name = r["trigger_name"] or "(deleted trigger)"
         print(f"{ts}  {r['action']:<9} {status:<9}  {name}: {r['message']}")
+
+
+def cmd_vocab(_: argparse.Namespace) -> None:
+    """Allowed values per fact key, so UIs can offer pickers without copying the lists."""
+    from typing import get_args
+
+    from ei.analyzers.ollama_vlm import BehaviorObservation
+
+    vocab: dict[str, list[str]] = {"present": ["true", "false"]}
+    for name, f in BehaviorObservation.model_fields.items():
+        args = get_args(f.annotation)
+        if args and all(isinstance(a, str) for a in args):  # Literal[...]
+            vocab[name] = [a for a in args if a != "unclear"]
+    vocab["activity"] = [*vocab["activity"], "away"]  # recorded when no one is present
+    print(json.dumps(vocab))
 
 
 def cmd_hook_config(_: argparse.Namespace) -> None:
@@ -203,7 +218,7 @@ def main() -> None:
     )
     a.add_argument("name")
     a.add_argument("--when", action="append", required=True, metavar="KEY=VALUE[,VALUE]",
-                   help="e.g. activity=drinking (repeatable; all must match)")  # fmt: skip
+                   help="e.g. activity=eating_drinking (repeatable; all must match)")  # fmt: skip
     a.add_argument("--for", dest="for_", metavar="DURATION", help="e.g. 10m (sustained)")
     a.add_argument("--cooldown", default="0", metavar="DURATION", help="e.g. 30m")
     a.add_argument("--notify", choices=triggers.ACTIONS, default="agent",
@@ -216,6 +231,10 @@ def main() -> None:
     p = sub.add_parser("events", help="show recently fired trigger events")
     p.add_argument("-n", type=int, default=20)
     p.set_defaults(func=cmd_events)
+
+    sub.add_parser("vocab", help="print allowed values per fact key as JSON").set_defaults(
+        func=cmd_vocab
+    )
 
     sub.add_parser(
         "hook-config", help="print the Claude Code settings snippet that registers ei-hook"

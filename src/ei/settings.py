@@ -1,6 +1,6 @@
 """Typed settings backed by the `settings` table.
 
-The settings table is how the (future) desktop app controls the daemon: it writes
+The settings table is how the desktop app controls the daemon: it writes
 rows here, and the daemon notices via `PRAGMA data_version` and reloads.
 """
 
@@ -38,6 +38,9 @@ class Settings:
     # Agent-bound trigger events older than this are dropped instead of delivered, so
     # starting an agent session doesn't replay a backlog of stale nudges.
     agent_event_ttl_s: float = 300.0
+    # Unix ms of the latest "capture now" request (desktop app). The daemon runs an
+    # immediate tick whenever this increases.
+    capture_requested_at: int = 0
 
     @property
     def max_gap_s(self) -> float:

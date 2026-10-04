@@ -5,7 +5,7 @@ writer; the MCP server and desktop app are readers. Stdlib only — this module 
 imported by the MCP server, so it must stay cheap to import.
 
 Data model: an `observation` is one analyzed moment; its `facts` are what was seen
-(key/value pairs such as posture=slouched, hands=touching_face). Only observable
+(key/value pairs such as posture=slouched, hands=face). Only observable
 behavior is stored — never inferred emotions.
 """
 
@@ -65,7 +65,7 @@ MIGRATIONS: list[str] = [
     CREATE TABLE facts (
         observation_id  INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
         key             TEXT    NOT NULL,      -- 'posture', 'hands', 'gaze', ...
-        value           TEXT    NOT NULL,      -- 'slouched', 'touching_face', ...
+        value           TEXT    NOT NULL,      -- 'slouched', 'face', ...
         PRIMARY KEY (observation_id, key, value)
     ) WITHOUT ROWID;
     CREATE INDEX facts_key_value ON facts(key, value);
@@ -95,6 +95,64 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX events_pending ON events(action, ts) WHERE delivered_at IS NULL;
     CREATE INDEX events_ts ON events(ts);
+    """,
+    # 4: daemon heartbeat, so readers (desktop app) can tell the daemon is alive and
+    # what its last tick did even when the gate skipped and nothing was written.
+    """
+    CREATE TABLE daemon_state (
+        id            INTEGER PRIMARY KEY CHECK (id = 1),
+        pid           INTEGER NOT NULL,
+        started_at    INTEGER NOT NULL,        -- unix ms
+        last_tick_ts  INTEGER,                 -- unix ms
+        last_status   TEXT,                    -- TickResult.status
+        last_error    TEXT
+    );
+    """,
+    # 5: smaller vocabulary that small local models can tell apart reliably. Maps old
+    # values onto their closest new one (NULL drops it); `head` folds into hands=face.
+    """
+    CREATE TEMP TABLE remap (key TEXT, old TEXT, new TEXT);
+    INSERT INTO remap VALUES
+        ('activity', 'talking', 'working'), ('activity', 'eating', 'eating_drinking'),
+        ('activity', 'drinking', 'eating_drinking'), ('activity', 'stretching', 'idle'),
+        ('gaze', 'down', 'away'), ('gaze', 'eyes_closed', 'away'),
+        ('expression', 'laughing', 'smiling'), ('expression', 'brow_furrowed', 'frowning'),
+        ('expression', 'lips_pressed', 'frowning'), ('expression', 'mouth_open', NULL),
+        ('posture', 'leaning_forward', 'upright'), ('posture', 'leaning_back', 'slouched'),
+        ('hands', 'keyboard', 'desk'), ('hands', 'mouse', 'desk'),
+        ('hands', 'touching_face', 'face'), ('hands', 'rubbing_eyes', 'face'),
+        ('hands', 'behind_head', NULL), ('hands', 'arms_crossed', NULL),
+        ('hands', 'holding_object', NULL), ('hands', 'gesturing', NULL);
+
+    INSERT OR IGNORE INTO facts (observation_id, key, value)
+        SELECT observation_id, 'hands', 'face' FROM facts
+        WHERE key = 'head' AND value IN ('in_hands', 'resting_on_hand');
+    DELETE FROM facts WHERE key = 'head';
+    INSERT OR IGNORE INTO facts (observation_id, key, value)
+        SELECT f.observation_id, f.key, r.new FROM facts f
+        JOIN remap r ON r.key = f.key AND r.old = f.value WHERE r.new IS NOT NULL;
+    DELETE FROM facts WHERE EXISTS
+        (SELECT 1 FROM remap r WHERE r.key = facts.key AND r.old = facts.value);
+    -- hands is single-valued now; face wins over desk.
+    DELETE FROM facts WHERE key = 'hands' AND value = 'desk' AND observation_id IN
+        (SELECT observation_id FROM facts WHERE key = 'hands' AND value = 'face');
+
+    -- Old values are unique across keys, so a quoted string replace is safe in the JSON.
+    WITH RECURSIVE step(i, id, c) AS (
+        SELECT 0, id, conditions FROM triggers
+        UNION ALL
+        SELECT s.i + 1, s.id, replace(s.c, '"' || r.old || '"', '"' || r.new || '"')
+        FROM step s JOIN (SELECT row_number() OVER () - 1 AS i, old, new FROM remap
+                          WHERE new IS NOT NULL) r ON r.i = s.i
+    )
+    UPDATE triggers SET conditions = (SELECT c FROM step WHERE step.id = triggers.id
+                                      ORDER BY i DESC LIMIT 1);
+    -- Merged values can repeat (brow_furrowed + frowning -> frowning twice).
+    UPDATE triggers SET conditions = (
+        SELECT json_group_object(k.key, json((SELECT json_group_array(DISTINCT v.value)
+                                              FROM json_each(k.value) v)))
+        FROM json_each(triggers.conditions) k);
+    DROP TABLE remap;
     """,
 ]
 
@@ -129,7 +187,7 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-Facts = dict[str, list[str]]  # key -> values; most keys hold one value, 'hands' can hold several
+Facts = dict[str, list[str]]  # key -> values; the VLM reports one value per key
 
 
 @dataclass(slots=True)
@@ -161,6 +219,23 @@ def insert_observation(conn: sqlite3.Connection, obs: Observation) -> int:
             [(obs_id, k, v) for k, values in obs.facts.items() for v in values],
         )
     return obs_id
+
+
+def record_daemon_start(conn: sqlite3.Connection, pid: int) -> None:
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO daemon_state (id, pid, started_at) VALUES (1, ?, ?)",
+            (pid, now_ms()),
+        )
+
+
+def record_tick(conn: sqlite3.Connection, status: str, error: str | None = None) -> None:
+    with conn:
+        conn.execute(
+            """UPDATE daemon_state SET last_tick_ts = ?, last_status = ?, last_error = ?
+               WHERE id = 1""",
+            (now_ms(), status, error),
+        )
 
 
 def prune(conn: sqlite3.Connection, retention_days: int) -> int:

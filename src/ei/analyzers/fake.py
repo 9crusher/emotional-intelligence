@@ -8,9 +8,8 @@ DEFAULT_FACTS: Facts = {
     "activity": ["working"],
     "gaze": ["screen"],
     "expression": ["neutral"],
-    "head": ["upright"],
     "posture": ["upright"],
-    "hands": ["keyboard"],
+    "hands": ["desk"],
 }
 
 

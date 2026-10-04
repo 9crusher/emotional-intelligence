@@ -1,8 +1,11 @@
 """Describe observable behavior with a local vision-language model via Ollama.
 
-The model reports what it sees — gaze, expression, head, posture, hands, activity —
-using fixed vocabularies. It never judges emotion: interpretation is left to the agent,
-which has the context (what you're working on, what just happened) to do it well.
+The model reports what it sees — activity, gaze, expression, posture, hands — using
+small, fixed vocabularies. Each field is a single choice between options that are easy to
+tell apart in one low-resolution frame, because small local models are unreliable at
+fine distinctions (leaning forward vs upright, frowning vs lips pressed). It never judges
+emotion: interpretation is left to the agent, which has the context (what you're working
+on, what just happened) to do it well.
 """
 
 from __future__ import annotations
@@ -28,22 +31,16 @@ class BehaviorObservation(BaseModel):
     field offers "unclear" so the model is never forced to invent a detail."""
 
     present: bool = Field(description="Is a person actually visible in the frame?")
-    activity: Literal[
-        "working", "talking", "drinking", "eating", "on_phone", "stretching", "idle", "unclear",
-    ]  # fmt: skip
-    gaze: Literal["screen", "down", "away", "eyes_closed", "unclear"]
-    expression: Literal[
-        "neutral", "smiling", "laughing", "brow_furrowed", "frowning", "yawning",
-        "lips_pressed", "mouth_open", "unclear",
-    ]  # fmt: skip
-    head: Literal["upright", "tilted", "resting_on_hand", "in_hands", "turned_away", "unclear"]
-    posture: Literal["upright", "leaning_forward", "leaning_back", "slouched", "unclear"]
-    hands: list[
-        Literal[
-            "keyboard", "mouse", "touching_face", "rubbing_eyes", "behind_head",
-            "arms_crossed", "holding_object", "gesturing", "not_visible",
-        ]
-    ] = Field(description="Everything the hands are visibly doing")  # fmt: skip
+    activity: Literal["working", "on_phone", "eating_drinking", "idle", "unclear"]
+    gaze: Literal["screen", "away", "unclear"] = Field(
+        description="screen: looking toward the camera/screen. away: anywhere else, or eyes closed"
+    )
+    expression: Literal["neutral", "smiling", "frowning", "yawning", "unclear"]
+    posture: Literal["upright", "slouched", "unclear"]
+    hands: Literal["desk", "face", "not_visible", "unclear"] = Field(
+        description="desk: on keyboard, mouse or desk. "
+        "face: touching face or head, or resting head on hand"
+    )
     notes: str = Field(
         description="One short sentence for anything notable the fields above miss, else ''"
     )
@@ -56,9 +53,8 @@ class BehaviorObservation(BaseModel):
             "activity": [self.activity],
             "gaze": [self.gaze],
             "expression": [self.expression],
-            "head": [self.head],
             "posture": [self.posture],
-            "hands": sorted(set(self.hands)) or ["not_visible"],
+            "hands": [self.hands],
         }
         # "unclear" is the model abstaining; record nothing rather than a non-observation.
         return {k: v for k, v in facts.items() if v != ["unclear"]}
@@ -67,12 +63,12 @@ class BehaviorObservation(BaseModel):
 PROMPT = """Look at this webcam frame from a computer.
 First decide whether a person is actually visible. If not, set present to false.
 
-If a person is visible, describe only what you can directly see: their activity, where
-they are looking, facial expression, head position, posture, and what their hands are
-doing. Use "unclear" for anything you cannot see clearly; do not guess.
+If a person is visible, pick the closest option for each field: their activity, where
+they are looking, facial expression, posture, and where their hands are. Use "unclear"
+for anything you cannot see clearly; do not guess.
 
-Report observable facts, not interpretations: say "brow_furrowed" or "smiling", never
-an emotion, mood, or intent."""
+Report observable facts, not interpretations: say "frowning" or "smiling", never an
+emotion, mood, or intent."""
 
 
 def ensure_local_ollama_host() -> str:

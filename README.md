@@ -5,7 +5,7 @@ The goal of this project is to give desktop agents emotional intelligence. In pa
 ### How it works
 A local scheduled jobs polls the desktop camera at regular intervals. Local models describe your observable body language (expression, gaze, posture, what your hands are doing), and the results are saved in a local database. An MCP connector enables desktop agents to access the results (importantly not the images).
 
-Emotional judgements are deliberately *not* made or stored. A single webcam frame can't reliably say how you feel, but it can reliably say "brow furrowed, leaning in, hand on chin". The agent, which knows what you're working on and what just happened, is in a much better position to interpret that.
+Emotional judgements are deliberately *not* made or stored. A single webcam frame can't reliably say how you feel, but it can reliably say "frowning, slouched, hand on face". The agent, which knows what you're working on and what just happened, is in a much better position to interpret that.
 
 ### Future work
 In the future, keyboard inputs, biometrics, and an agent's own assesment of your emotional state could be included.
@@ -15,17 +15,16 @@ Because what's recorded is behavior rather than emotion, the same data serves ot
 
 ### What gets recorded
 
-Each observation is a set of facts drawn from fixed vocabularies (any field can also be left out when the model can't see it clearly):
+Each observation is a set of facts, one value per key, drawn from small fixed vocabularies. The options are kept coarse on purpose: small local vision models are reliable at "smiling vs frowning" or "hand on face", not at "leaning forward vs upright" or "brow furrowed vs lips pressed". Any field can be left out when the model can't see it clearly.
 
 | key          | values |
 |--------------|--------|
 | `present`    | `true`, `false` |
-| `activity`   | `working`, `talking`, `drinking`, `eating`, `on_phone`, `stretching`, `idle`, `away` |
-| `gaze`       | `screen`, `down`, `away`, `eyes_closed` |
-| `expression` | `neutral`, `smiling`, `laughing`, `brow_furrowed`, `frowning`, `yawning`, `lips_pressed`, `mouth_open` |
-| `head`       | `upright`, `tilted`, `resting_on_hand`, `in_hands`, `turned_away` |
-| `posture`    | `upright`, `leaning_forward`, `leaning_back`, `slouched` |
-| `hands`      | any of `keyboard`, `mouse`, `touching_face`, `rubbing_eyes`, `behind_head`, `arms_crossed`, `holding_object`, `gesturing`, `not_visible` |
+| `activity`   | `working`, `on_phone`, `eating_drinking`, `idle`, `away` |
+| `gaze`       | `screen`, `away` |
+| `expression` | `neutral`, `smiling`, `frowning`, `yawning` |
+| `posture`    | `upright`, `slouched` |
+| `hands`      | `desk`, `face`, `not_visible` |
 
 Plus an optional one-sentence note for anything the fields miss.
 
@@ -44,7 +43,7 @@ Plus an optional one-sentence note for anything the fields miss.
                            └──▲───────────▲──┘
                    read-only  │           │  read + settings writes
               ┌───────────────┴──┐   ┌────┴──────────────────┐
-              │ ei-mcp (stdio,   │   │ desktop app (later)   │
+              │ ei-mcp (stdio,   │   │ desktop app (app/)    │
               │ spawned by agent)│   │                       │
               └──────────────────┘   └───────────────────────┘
 ```
@@ -63,7 +62,7 @@ Plus an optional one-sentence note for anything the fields miss.
   slouched in the last hour?" are a single query, and new signals need no schema change.
 - **Summaries are time-weighted.** The gate skips unchanged frames, so one observation can
   stand for minutes of sitting still. Each observation counts until the next one.
-- Query logic is shared in `ei/queries.py`. The MCP server and the future desktop app are
+- Query logic is shared in `ei/queries.py`. The MCP server and the desktop app are
   thin adapters over the same functions.
 
 
@@ -82,6 +81,29 @@ uv run ei settings                # list settings; `ei settings interval_s 15` t
 ```
 
 
+
+### Desktop app (macOS)
+
+A native SwiftUI app in `app/` runs the daemon for you and gives you:
+- a dashboard of recent captures (what was seen: gaze, expression, posture, hands)
+- an AI Models page to download and choose local Ollama vision models
+- a Triggers page to create and edit triggers
+- Settings for every daemon setting
+
+It needs macOS 15 and the Swift command-line tools; Xcode isn't required.
+
+```sh
+uv sync                              # the app runs .venv/bin/ei-daemon from this folder
+app/scripts/build-app.sh             # → app/build/Emotional Intelligence.app
+open "app/build/Emotional Intelligence.app"
+```
+
+**How the app works:**
+- **Daemon:** the app starts `ei-daemon` as a child process and stops it on quit. Closing the window keeps capture running from the menu bar (the eye icon).
+- **Camera permission:** macOS asks the app for camera access, and the daemon uses that grant.
+- **Shared state:** settings and triggers go through the same SQLite tables as the CLI, so `ei settings` and `ei triggers` stay in sync with the app.
+- **Trying it out:** Settings → Diagnostics → Fake mode runs without a camera or Ollama.
+- **Daemon already running:** if one is running elsewhere (terminal or launchd), the app uses it instead of starting another.
 
 ### Run at login (macOS)
 
@@ -110,7 +132,7 @@ Add the MCP server to your agent's config, for example `.mcp.json` for Claude Co
 ```
 
 Tools:
-- `current_observation()`, e.g. *"Observed 12s ago. activity: working; gaze: screen; expression: brow_furrowed; head: resting_on_hand; posture: leaning_forward; hands: mouse, touching_face."*
+- `current_observation()`, e.g. *"Observed 12s ago. activity: working; gaze: screen; expression: frowning; posture: upright; hands: face."*
 - `recent_behavior(minutes)` gives the share of time per value, flagging changes versus the previous window, e.g. *"posture: slouched 70% (prev 20%)"*.
 
 ## Triggers
@@ -119,7 +141,7 @@ Triggers fire when observed behavior matches a rule, either on entering a state 
 
 ```sh
 # Tell the agent when you take a drink (on entering the state), at most every 30 min
-uv run ei triggers add "drink break" --when activity=drinking --cooldown 30m \
+uv run ei triggers add "drink break" --when activity=eating_drinking --cooldown 30m \
   --message "User just took a drink. Good moment to pause and summarize progress."
 
 # Desktop notification after 10 minutes of slouching
